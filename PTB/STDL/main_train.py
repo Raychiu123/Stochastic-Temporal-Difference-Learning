@@ -1,4 +1,3 @@
-# reconstruction
 import sys
 sys.path.append('..')
 
@@ -14,7 +13,7 @@ import torch.nn.utils as utils
 import matplotlib.pyplot as plt
 
 from ptb import PTB
-from STDL import *
+from model import *
 from utils import *
 
 # device configuration
@@ -45,7 +44,7 @@ time_range = 1
 time_step = 4
 lnt_overshooting = False
 obs_overshooting = False
-model = TD_VAE(x_size=datasets['train'].vocab_size,
+model = STDL(x_size=datasets['train'].vocab_size,
             processed_x_size=embedding_size,
             b_size=hidden_size,
             z_size=z_size,
@@ -163,6 +162,7 @@ for ep in range(epoch):
                 over = 0
 
                 #model.eval()
+                small_epoch = int(max(lengths)/(time_step*time_range))
                 for _ in range(small_epoch):
                     # forward
                     model(dec_inputs, lengths)
@@ -178,7 +178,7 @@ for ep in range(epoch):
 
                 optimizer.zero_grad()
                 loss.backward()
-                utils.clip_grad_norm_(model.parameters(), 1)
+                #utils.clip_grad_norm_(model.parameters(), 1)
                 optimizer.step()
 
                 if itr % print_every == 0 or itr + 1 == len(dataloader):
