@@ -28,8 +28,8 @@ if not os.path.isdir(pth + p_dir + img_dir):
 with open("../data/MNIST.pkl", 'rb') as file_handle:
     MNIST = pickle.load(file_handle)
 
-data = MNIST_Dataset(MNIST['train_image'])
-data_test = MNIST_Dataset(MNIST['test_image'])
+data = MNIST_Dataset(MNIST['train_image'], MNIST['train_label'])
+data_test = MNIST_Dataset(MNIST['test_image'], MNIST['test_label'])
 
 batch_size = 512*16
 data_loader = DataLoader(data,
@@ -60,7 +60,7 @@ log_file_handle = open(path1, 'w')
 loss_pkl = []
 
 for epoch in range(num_epoch):
-    for idx, images in enumerate(data_loader):   
+    for idx, (images,_) in enumerate(data_loader):   
         images = images.cuda()       
         stdl.forward(images)
         t_1 = np.random.choice(12)
