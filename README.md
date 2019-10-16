@@ -31,3 +31,6 @@ without going through all intermediate states. This learning style mimics human 
   <img src="./figure/32lnt.png" width="400" height="300">
   </p>
 
+## Code References
+* [https://github.com/cwwang87/self-attention-model](https://github.com/cwwang87/self-attention-model)
+* [https://github.com/xqding/TD-VAE](https://github.com/xqding/TD-VAE)
