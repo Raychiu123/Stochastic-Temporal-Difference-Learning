@@ -1,4 +1,3 @@
-### with dropout
 import numpy as np
 import torch
 import torch.nn as nn
@@ -27,18 +26,21 @@ class DBlock(nn.Module):
         return mu, logsigma
 
 class Decoder(nn.Module):
-    def __init__(self, z_size, x_size):
+    def __init__(self, z_size, x_size, hidden_size):
         super(Decoder, self).__init__()
-        self.fc1 = nn.Linear(z_size, x_size)
-        #self.fc2 = nn.Linear(hidden_size, hidden_size)
-        #self.fc3 = nn.Linear(hidden_size, x_size)
+        self.fc1 = nn.Linear(z_size + hidden_size, x_size)
+        #self.fc2 = nn.Linear(2*hidden_size, 4*hidden_size)
+        #self.fc3 = nn.Linear(4*hidden_size, 16*hidden_size)
+        #self.fc4 = nn.Linear(16*hidden_size, x_size)
 
     def forward(self, z):
 
-        p = self.fc1(z)
+        t = self.fc1(z)
         #t = torch.tanh(self.fc2(t))
         #p = self.fc3(t)
-        p = F.log_softmax(p)
+        #p = torch.tanh(p)
+        #p = self.fc4(p)
+        p = F.log_softmax(t)
         return p
 
 
@@ -86,7 +88,7 @@ class STDL(nn.Module):
         self.transition_z = DBlock(z_size, 50, z_size)
 
         ## state to observation
-        self.z_to_x = Decoder(z_size, x_size)
+        self.z_to_x = Decoder(z_size, x_size, b_size)
 
 
     def forward(self, input_data, length):
@@ -115,7 +117,7 @@ class STDL(nn.Module):
         z_mu, z_logsigma = self.b_to_z(self.b)
         z_epsilon = torch.randn_like(z_mu)
         t_z = z_mu + torch.exp(z_logsigma)*z_epsilon
-        return t_z 
+        return t_z
 
     def calculate_loss(self, target):
 
@@ -193,7 +195,8 @@ class STDL(nn.Module):
 
         ## reconstruction
         t_x_prob = {'prob':[]}
-        t_x_prob['prob'].append(self.z_to_x(t_b_z['z'][0]).view(self.batch_size, -1))
+        tmp = torch.cat((t_b_z['z'][0], self.b[:,t_list[-2],:]), dim = -1).view(-1, self.z_size + self.b_size)
+        t_x_prob['prob'].append(self.z_to_x(tmp).view(self.batch_size, -1, self.x_size))
 
         if self.overshooting:
             t_overshoot_all = []
@@ -240,7 +243,9 @@ class STDL(nn.Module):
                         over_loss += kl_div_gaussian(t_overshoot_all[i]['mu'][j],t_overshoot_all[i]['logsigma'][j],
                                             t_b_z['mu'][-2-i-j],t_b_z['logsigma'][-2-i-j])
                     if self.obs_overshooting:
-                        over_loss += NLL(self.z_to_x(t_overshoot_all[i]['z'][j]).view(self.batch_size, 1, -1),
+                        tmp = torch.cat((t_overshoot_all[i]['z'][j], self.b[:,t_list[i+j+1],:])
+                                        , dim = -1).view(-1, self.z_size + self.b_size)
+                        over_loss += NLL(self.z_to_x(tmp).view(self.batch_size, 1, -1),
                                         target[:,t_list[1+i+j]])
             over_loss = torch.mean(over_loss)
 
@@ -251,8 +256,9 @@ class STDL(nn.Module):
     def rollout(self):
         #b_size = self.forward(input_data, length)
         rollout_x = []
+        input_z = []
 
-        z_mu, z_logsigma = self.b_to_z(self.b)
+        z_mu, z_logsigma = self.b_to_z(self.b.view(-1, self.b_size))
         z_epsilon = torch.randn_like(z_mu)
         z = z_mu + torch.exp(z_logsigma)*z_epsilon
 
@@ -260,7 +266,11 @@ class STDL(nn.Module):
         next_z_epsilon = torch.randn_like(next_z_mu)
         next_z = next_z_mu + torch.exp(next_z_logsigma)*next_z_epsilon
 
-        next_x = self.z_to_x(next_z)
+        input_z = torch.cat((next_z, self.b.view(-1, self.b_size)), dim = -1)
+        input_z = F.dropout(input_z, p = self.dropout_rate, training=self.training)
+
+        next_x = self.z_to_x(input_z)#.view(-1, self.z_size + self.b_size))
+        next_x = next_x.view(self.batch_size, -1, self.x_size)
         return next_x
 
     def reconstruct(self):

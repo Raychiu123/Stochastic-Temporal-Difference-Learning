@@ -22,13 +22,14 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # Penn TreeBank (PTB) dataset
 data_path = '../data'
-max_len = 96
+#max_len = 96
 splits = ['train', 'valid', 'test']
 datasets = {split: PTB(root=data_path, split=split) for split in splits}
 
 # data loader
+batch_size = 512
 dataloaders = {split: DataLoader(datasets[split],
-                                 batch_size=512,
+                                 batch_size=batch_size,
                                  shuffle=split=='train',
                                  num_workers=cpu_count(),
                                  pin_memory=torch.cuda.is_available())
@@ -43,7 +44,7 @@ dropout_rate = 0.5
 time_range = 1
 time_step = 4
 lnt_overshooting = False
-obs_overshooting = False
+obs_overshooting = True
 model = STDL(x_size=datasets['train'].vocab_size,
             processed_x_size=embedding_size,
             b_size=hidden_size,
@@ -100,7 +101,7 @@ else:
 log_file_handle = open(save_path + "/log_file.txt", 'w')
 log_file_handle2 = open(save_path + "/log_file_train.txt", 'w')
 # objective function
-learning_rate = 0.01
+learning_rate = 0.001
 criterion = nn.NLLLoss(size_average=False, ignore_index=symbols['<pad>'])
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 #optimizer = nn.DataParallel(optimizer, device_ids=device_ids)
@@ -117,13 +118,15 @@ train_tracker = {'NLL': [], 'PPL': [], 'z_space': []}
 valid_tracker = {'NLL': [], 'PPL': [], 'z_space': []}
 test_tracker = {'NLL': [], 'PPL': [], 'z_space': []}
 
+best_nll = 1000
+
 start_time = time.time()
 for ep in range(epoch):
     # learning rate decay
-    if ep >= 10 and ep % 2 == 0 and learning_rate > 0.0001:
-        learning_rate = learning_rate * 0.8
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = learning_rate
+    #if ep >= 10 and ep % 2 == 0 and learning_rate > 0.00001:
+    #    learning_rate = learning_rate * 0.5
+    #    for param_group in optimizer.param_groups:
+    #        param_group['lr'] = learning_rate
 
     for split in splits:
         dataloader = dataloaders[split]
@@ -136,7 +139,6 @@ for ep in range(epoch):
             targets = targets.to(device)
             lengths = lengths.to(device)
 
-            #model.eval()
             model.forward(dec_inputs, lengths)
             rollout_x = model.rollout()
             target = targets[:, :torch.max(lengths+1).item()].contiguous().view(-1)
@@ -148,8 +150,6 @@ for ep in range(epoch):
             totals['words'] += torch.sum(lengths).item()
 
             if split == 'train':
-
-                #model.train()
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -162,11 +162,19 @@ for ep in range(epoch):
                 over = 0
 
                 #model.eval()
-                small_epoch = int(max(lengths)/(time_step*time_range))
                 for _ in range(small_epoch):
                     # forward
                     model(dec_inputs, lengths)
-                    t_loss, t_nll, t_over = model.calculate_loss(dec_inputs)
+                    t_loss, t_nll, t_over = model.calculate_loss(targets)
+
+                    t_loss = t_loss / bsize
+                    t_nll = t_nll / bsize
+                    t_over = t_over / bsize
+
+                    optimizer.zero_grad()
+                    t_loss.backward()
+                    utils.clip_grad_norm_(model.parameters(), 1)
+                    optimizer.step()
 
                     loss += t_loss
                     nll += t_nll
@@ -176,11 +184,6 @@ for ep in range(epoch):
                 nll/=small_epoch
                 over/=small_epoch
 
-                optimizer.zero_grad()
-                loss.backward()
-                #utils.clip_grad_norm_(model.parameters(), 1)
-                optimizer.step()
-
                 if itr % print_every == 0 or itr + 1 == len(dataloader):
                     print("%s Batch %04d/%04d, NLL-Loss %.4f, model_loss %.4f, tdvae_nll %.4f, overshooting_nll %.4f"
                            %(split.upper(), itr, len(dataloader), tracker['NLL'][-1], loss, nll, over))
@@ -189,6 +192,19 @@ for ep in range(epoch):
                            file = log_file_handle2, flush = True)
 
         samples = len(datasets[split])
+
+        if split == 'valid' and best_nll > (totals['NLL'] / samples):
+            best_nll = totals['NLL'] / samples
+            print("Best NLL: ", best_nll)
+
+        elif split == 'valid' and learning_rate > 0.00001 and best_nll <= (totals['NLL'] / samples):
+            learning_rate = learning_rate * 0.5
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = learning_rate
+                print("learning rate: ",learning_rate)
+                print("Best NLL: ", best_nll)
+
+
         print("%s Epoch %02d/%02d, NLL %.4f, PPL %.4f"
                % (split.upper(), ep, epoch, totals['NLL'] / samples,
                      math.exp(totals['NLL'] / totals['words'])),
