@@ -48,7 +48,7 @@ class STDL(nn.Module):
     def __init__(self, x_size, processed_x_size, b_size, z_size
                 , dropout_rate, bos_idx, eos_idx, pad_idx, time_step, time_range
                 , lnt_overshooting = False, obs_overshooting = False):
-        super(TD_VAE, self).__init__()
+        super(STDL, self).__init__()
         self.x_size = x_size # for vocab_size
         self.processed_x_size = processed_x_size # for embed_size
         self.b_size = b_size # for hidden size

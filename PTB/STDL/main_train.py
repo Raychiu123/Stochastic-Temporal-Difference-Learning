@@ -27,7 +27,7 @@ splits = ['train', 'valid', 'test']
 datasets = {split: PTB(root=data_path, split=split) for split in splits}
 
 # data loader
-batch_size = 512
+batch_size = 128
 dataloaders = {split: DataLoader(datasets[split],
                                  batch_size=batch_size,
                                  shuffle=split=='train',
