@@ -41,7 +41,7 @@ for split in splits:
     with open(os.path.join(root, "ptb.%s.txt" % split)) as f:
         for line in f:
             words = line.strip().split()[:max_len]
-            length = len(words)
+            length = len(words) + 1
             paddings = ['<pad>'] * (max_len - length)
             enc_input = func(words + paddings)
             dec_input = func(['<bos>'] + words + paddings)

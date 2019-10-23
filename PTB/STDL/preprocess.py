@@ -29,12 +29,6 @@ num_sents, num_words = 0, 0
 func = lambda seq: np.array([
     word_to_idx.get(symbol, word_to_idx['<unk>']) for symbol in seq])
 
-#print(word_to_idx)
-#print("\n\n")
-#print(word_to_idx.get(symbol, word_to_idx['<unk>']) for symbol in seq)
-#print(word_to_idx['<unk>'])
-#os._exit()
-
 for split in splits:
     print("Creating %s PTB data" % split)
     data = []

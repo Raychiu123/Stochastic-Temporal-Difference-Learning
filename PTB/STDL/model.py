@@ -72,13 +72,15 @@ class STDL(nn.Module):
         ## one layer LSTM for aggregating belief states
         self.lstm = nn.LSTM(input_size = self.processed_x_size,
                             hidden_size = self.b_size,
+                            num_layers = 1,
                             batch_first = True)
+        #self.b_size*=2
 
-        self.b_to_z = DBlock(b_size, 50, z_size)
+        self.b_to_z = DBlock(b_size, 150, z_size)
 
         ## Given belief and state at time t2, infer the state at time t1
         ## infer state
-        self.infer_z = DBlock(b_size + (self.time_step-1)*z_size, 50, z_size)
+        self.infer_z = DBlock(b_size + (self.time_step-1)*z_size, 150, z_size)
         ## Given the state at time t1, model state at time t2 through state transition
         ## state transition
 
@@ -91,26 +93,34 @@ class STDL(nn.Module):
         self.z_to_x = Decoder(z_size, x_size, b_size)
 
 
-    def forward(self, input_data, length):
+    def forward(self, input_data, length, drop):
         self.length = length
         sorted_len, sorted_idx = torch.sort(self.length, descending=True)
         input_data = input_data[sorted_idx]
 
         self.batch_size = input_data.size()[0]
-        self.x = input_data
+        self.x = input_data#.float()
+
+        #drop_x = self.dropout(self.x)
 
         ## embedding x
         self.processed_x = self.process_x(self.x)
-        drop_input = F.dropout(self.processed_x, p = self.dropout_rate, training=self.training)
+        #print(self.processed_x.type())
+        #os._exit()
+        if drop:
+            self.processed_x = F.dropout(self.processed_x, p = self.dropout_rate, training=self.training)
 
-        pack_input = pack_padded_sequence(drop_input, sorted_len + 1,
+        pack_input = pack_padded_sequence(self.processed_x, sorted_len + 1,
                                           batch_first=True)
         pack_output, _ = self.lstm(pack_input)
+
         self.b, _= pad_packed_sequence(pack_output, batch_first=True)
 
         _, reversed_idx = torch.sort(sorted_idx)
         #print("\nreversed_idx:", reversed_idx)
         self.b = self.b[reversed_idx]
+        if drop:
+            self.b = F.dropout(self.b, p = 0.5, training=self.training)
         #return self.b.size()
 
     def z_compare(self):
@@ -225,7 +235,10 @@ class STDL(nn.Module):
 
         #### start calculating the loss
         loss = 0
+        kl_loss = 0
         for i in range(self.time_step-1):
+            kl_loss += kl_div_gaussian(t_qs_z['mu'][-1-i], t_qs_z['logsigma'][-1-i],
+                                    t_b_z['mu'][-1-i], t_b_z['logsigma'][-1-i])
             loss += kl_div_gaussian(t_qs_z['mu'][-1-i], t_qs_z['logsigma'][-1-i],
                                     t_b_z['mu'][-1-i], t_b_z['logsigma'][-1-i])
             loss += gaussian_log_prob(t_b_z['mu'][i], t_b_z['logsigma'][i], t_b_z['z'][i])
@@ -243,7 +256,7 @@ class STDL(nn.Module):
                         over_loss += kl_div_gaussian(t_overshoot_all[i]['mu'][j],t_overshoot_all[i]['logsigma'][j],
                                             t_b_z['mu'][-2-i-j],t_b_z['logsigma'][-2-i-j])
                     if self.obs_overshooting:
-                        tmp = torch.cat((t_overshoot_all[i]['z'][j], self.b[:,t_list[i+j+1],:])
+                        tmp = torch.cat((t_overshoot_all[i]['z'][j], self.b[:,t_list[i+j],:])
                                         , dim = -1).view(-1, self.z_size + self.b_size)
                         over_loss += NLL(self.z_to_x(tmp).view(self.batch_size, 1, -1),
                                         target[:,t_list[1+i+j]])
@@ -251,7 +264,8 @@ class STDL(nn.Module):
 
         loss += over_loss
         loss = torch.mean(loss)
-        return loss, nll, over_loss
+        kl_loss = torch.mean(kl_loss)
+        return loss, nll, over_loss, kl_loss
 
     def rollout(self):
         #b_size = self.forward(input_data, length)
@@ -270,22 +284,6 @@ class STDL(nn.Module):
         input_z = F.dropout(input_z, p = self.dropout_rate, training=self.training)
 
         next_x = self.z_to_x(input_z)#.view(-1, self.z_size + self.b_size))
+        next_x = F.dropout(next_x, p = self.dropout_rate, training=self.training)
         next_x = next_x.view(self.batch_size, -1, self.x_size)
         return next_x
-
-    def reconstruct(self):
-        #self.forward(input_data)
-        rollout_x = []
-        for k in range(self.b.size()[1]):
-            ## predicting states after time t1 using state transition
-            next_z_mu, next_z_logsigma = self.b_to_z(self.b[:,k,:])
-            next_z_epsilon = torch.randn_like(next_z_mu)
-            next_z = next_z_mu + torch.exp(next_z_logsigma)*next_z_epsilon
-
-            ## generate an observation x_t1 at time t1 based on sampled state z_t1
-            next_x = self.z_to_x(next_z)
-            rollout_x.append(next_x)
-
-        rollout_x = torch.stack(rollout_x, dim = 1)
-
-        return rollout_x
