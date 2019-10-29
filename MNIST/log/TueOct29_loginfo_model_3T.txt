@@ -1,0 +1,9 @@
+epoch:    0, idx:    0, loss: 553.73
+epoch:    0, idx:    1, loss: 550.01
+epoch:    0, idx:    2, loss: 546.35
+epoch:    0, idx:    3, loss: 542.44
+epoch:    0, idx:    4, loss: 538.16
+epoch:    0, idx:    5, loss: 533.31
+epoch:    0, idx:    6, loss: 527.81
+epoch:    0, idx:    7, loss: 521.56
+epoch:    1, idx:    0, loss: 514.11
